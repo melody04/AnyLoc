@@ -113,8 +113,8 @@ class DINOv2GradioApp:
     
     def var_num_img(self, s):
         n = int(s)  # Slider value as int
-        return [gr.Image.update(label=f"Image {i+1}", visible=True) \
-                for i in range(n)] + [gr.Image.update(visible=False) \
+        return [gr.Image(label=f"Image {i+1}", visible=True) \
+                for i in range(n)] + [gr.Image(visible=False) \
                         for _ in range(max_num_imgs - n)]
     
     @torch.no_grad()
@@ -241,13 +241,13 @@ class DINOv2GradioApp:
                 return images
             # A wrapper to unbatch images (and pad to max)
             def unbatch_images(imgs_batch):
-                ret = [gr.Image.update(visible=False) \
+                ret = [gr.Image(visible=False) \
                         for _ in range(max_num_imgs)]
                 if imgs_batch is None or len(imgs_batch) == 0:
                     return ret
                 for i, img_pil in enumerate(imgs_batch):
                     img_np = np.array(img_pil)
-                    ret[i] = gr.Image.update(img_np, visible=True)
+                    ret[i] = gr.Image(img_np, visible=True)
                 return ret
             # A state to store descriptors
             patch_descs = gr.State()
@@ -293,7 +293,7 @@ class DINOv2GradioApp:
     
     # Deploy the UI
     def deploy(self, share=False):
-        self.demo.queue().launch(share=share)
+        self.demo.queue().launch(share=True) #change to share=True to create a public link?
     
     # Build and deploy the UI
     def build_and_deploy(self, share=False):

@@ -437,7 +437,7 @@ def tab_cluster_viz():
         return images
     # A wrapper to unbatch images (and pad to max)
     def unbatch_images(imgs_batch, nimg):
-        ret = [gr.Image.update(visible=False) \
+        ret = [gr.Image(visible=False) \
                 for _ in range(max_num_imgs)]
         if imgs_batch is None or len(imgs_batch) == 0:
             return ret
@@ -446,7 +446,7 @@ def tab_cluster_viz():
                 img_np = np.array(imgs_batch[i])
             else:
                 img_np = None
-            ret[i] = gr.Image.update(img_np, visible=True)
+            ret[i] = gr.Image(img_np, visible=True)
         return ret
     
     # ---- Examples ----
@@ -550,9 +550,9 @@ with gr.Blocks() as demo:
     def var_num_img(s):
         n = int(s)  # Slider (string) value as int
         assert 1 <= n <= max_num_imgs, f"Invalid num of images: {n}!"
-        return [gr.Image.update(label=f"Image {i+1}", visible=True) \
+        return [gr.Image(label=f"Image {i+1}", visible=True) \
                 for i in range(n)] \
-            + [gr.Image.update(visible=False) \
+            + [gr.Image(visible=False) \
                 for _ in range(max_num_imgs - n)]
     
     # ---- State declarations ----

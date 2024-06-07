@@ -49,14 +49,14 @@ from configs import ProgArgs, prog_args, BaseDatasetArgs, \
 from typing import Union, Literal, Tuple, List
 from utilities import DinoV2ExtractFeatures
 from custom_datasets.baidu_dataloader import Baidu_Dataset
-from custom_datasets.oxford_dataloader import Oxford
-from custom_datasets.gardens import Gardens
-from custom_datasets.aerial_dataloader import Aerial
-from custom_datasets.hawkins_dataloader import Hawkins
-from custom_datasets.vpair_dataloader import VPAir
-from custom_datasets.laurel_dataloader import Laurel
-from custom_datasets.eiffel_dataloader import Eiffel
-from custom_datasets.vpair_distractor_dataloader import VPAir_Distractor
+#from custom_datasets.oxford_dataloader import Oxford
+#from custom_datasets.gardens import Gardens
+#from custom_datasets.aerial_dataloader import Aerial
+#from custom_datasets.hawkins_dataloader import Hawkins
+#from custom_datasets.vpair_dataloader import VPAir
+#from custom_datasets.laurel_dataloader import Laurel
+#from custom_datasets.eiffel_dataloader import Eiffel
+#from custom_datasets.vpair_distractor_dataloader import VPAir_Distractor
 
 
 # %%
@@ -322,10 +322,10 @@ def main(largs: LocalArgs):
     print(f"Dataset directory: {ds_dir}")
     print(f"Dataset name: {ds_name}, split: {largs.data_split}")
     # Load dataset
-    if ds_name=="baidu_datasets":
-        vpr_ds = Baidu_Dataset(largs.bd_args, ds_dir, ds_name, 
+    #if ds_name=="baidu_datasets":
+    vpr_ds = Baidu_Dataset(largs.bd_args, ds_dir, ds_name, 
                             largs.data_split)
-    elif ds_name=="Oxford":
+    """elif ds_name=="Oxford":
         vpr_ds = Oxford(ds_dir)
     elif ds_name=="Oxford_25m":
         vpr_ds = Oxford(ds_dir, override_dist=25)
@@ -344,7 +344,7 @@ def main(largs: LocalArgs):
         vpr_ds = Eiffel(largs.bd_args,ds_dir,ds_name,largs.data_split)
     else:
         vpr_ds = BaseDataset(largs.bd_args, ds_dir, ds_name, 
-                        largs.data_split)
+                        largs.data_split)"""
     
     if ds_name=="VPAir":
         db_vlads, qu_vlads = build_vlads(largs, vpr_ds,vpr_distractor_ds=vpr_distractor_ds)

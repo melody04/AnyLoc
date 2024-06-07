@@ -106,15 +106,15 @@ from custom_datasets.global_dataloader import Global_Dataloader \
         as GlobalDataloader
 from dvgl_benchmark.datasets_ws import BaseDataset
 from custom_datasets.baidu_dataloader import Baidu_Dataset
-from custom_datasets.oxford_dataloader import Oxford
+"""from custom_datasets.oxford_dataloader import Oxford
 from custom_datasets.gardens import Gardens
 from custom_datasets.aerial_dataloader import Aerial
 from custom_datasets.hawkins_dataloader import Hawkins
 from custom_datasets.vpair_dataloader import VPAir
 from custom_datasets.laurel_dataloader import Laurel
 from custom_datasets.eiffel_dataloader import Eiffel
-from custom_datasets.vpair_distractor_dataloader import VPAir_Distractor
-
+from custom_datasets.vpair_distractor_dataloader import VPAir_Distractor 
+"""
 
 # %%
 @dataclass
@@ -141,20 +141,20 @@ class LocalArgs:
     # Resize the image (doesn't work, always 320, 320)
     resize: Tuple[int, int] = field(default_factory=lambda: (320, 320))
     # Number of clusters for VLAD
-    num_clusters: int = 8
+    num_clusters: int = 32
     # Dataset split for VPR (BaseDataset)
     data_split: Literal["train", "test", "val"] = "test"
     # Dino parameters
     # Model type
     model_type: Literal["dinov2_vits14", "dinov2_vitb14", 
-            "dinov2_vitl14", "dinov2_vitg14"] = "dinov2_vits14"
+            "dinov2_vitl14", "dinov2_vitg14"] = "dinov2_vitg14"
     """
         Model for Dino-v2 to use as the base model.
     """
     # Layer for extracting Dino feature (descriptors)
-    desc_layer: int = 11
+    desc_layer: int = 31
     # Facet for extracting descriptors
-    desc_facet: Literal["query", "key", "value", "token"] = "key"
+    desc_facet: Literal["query", "key", "value", "token"] = "value"
     # Sub-sample query images (RAM or VRAM constraints) (1 = off)
     sub_sample_qu: int = 1
     # Sub-sample database images (RAM or VRAM constraints) (1 = off)
@@ -181,7 +181,7 @@ class LocalArgs:
         "Oxford": 0,
         "gardens": 0,
         "17places": 0,
-        "baidu_datasets": 0,
+        "baidu_datasets": 30,
         "st_lucia": 0,
         "pitts30k": 0,
         "Tartan_GNSS_test_rotated": 0,
@@ -255,7 +255,7 @@ class GlobalVLADVocabularyDataset:
             if ds_name=="baidu_datasets":
                 vpr_ds = Baidu_Dataset(bd_args, ds_dir, ds_name, 
                         data_split)
-            elif ds_name=="Oxford":
+            """ elif ds_name=="Oxford":
                 vpr_ds = Oxford(ds_dir)
             elif ds_name=="Oxford_25m": # This is actually useless!
                 vpr_ds = Oxford(ds_dir, override_dist=25)
@@ -276,7 +276,7 @@ class GlobalVLADVocabularyDataset:
                 vpr_ds = Eiffel(bd_args, ds_dir, ds_name, data_split)
             else:
                 vpr_ds = BaseDataset(bd_args, ds_dir, ds_name, 
-                        data_split)
+                        data_split) """
             imgs_path = vpr_ds.get_image_paths()
             num_db = vpr_ds.database_num
             num_ss = self.ss_list[i]
@@ -501,7 +501,7 @@ def main(largs: LocalArgs):
     if ds_name=="baidu_datasets":
         vpr_ds = Baidu_Dataset(largs.bd_args, ds_dir, ds_name, 
                             largs.data_split)
-    elif ds_name=="Oxford":
+    """elif ds_name=="Oxford":
         vpr_ds = Oxford(ds_dir)
     elif ds_name=="Oxford_25m":
         vpr_ds = Oxford(ds_dir, override_dist=25)
@@ -520,11 +520,11 @@ def main(largs: LocalArgs):
         vpr_ds = Eiffel(largs.bd_args,ds_dir,ds_name,largs.data_split)
     else:
         vpr_ds = BaseDataset(largs.bd_args, ds_dir, ds_name, 
-                        largs.data_split)
+                        largs.data_split) """
     
     if ds_name=="VPAir":
         db_vlads, qu_vlads = build_vlads_fm_global(largs, vpr_ds,
-                glob_ds, vpr_distractor_ds=vpr_distractor_ds)
+                glob_ds, vpr_distractor_ds=vpr_distractor_ds) 
     else:
         db_vlads, qu_vlads = build_vlads_fm_global(largs, vpr_ds, 
                 glob_ds)
