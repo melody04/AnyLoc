@@ -106,15 +106,17 @@ from custom_datasets.global_dataloader import Global_Dataloader \
         as GlobalDataloader
 from dvgl_benchmark.datasets_ws import BaseDataset
 from custom_datasets.baidu_dataloader import Baidu_Dataset
-from custom_datasets.oxford_dataloader import Oxford
+"""from custom_datasets.oxford_dataloader import Oxford
 from custom_datasets.gardens import Gardens
 from custom_datasets.aerial_dataloader import Aerial
 from custom_datasets.hawkins_dataloader import Hawkins
 from custom_datasets.vpair_dataloader import VPAir
 from custom_datasets.laurel_dataloader import Laurel
 from custom_datasets.eiffel_dataloader import Eiffel
-from custom_datasets.vpair_distractor_dataloader import VPAir_Distractor
+from custom_datasets.vpair_distractor_dataloader import VPAir_Distractor 
+"""
 
+import time
 
 # %%
 @dataclass
@@ -127,9 +129,9 @@ class LocalArgs:
     # Experiment identifier (None = don't use) [won't be used for caching]
     exp_id: Union[str, None] = None
     # VLAD Caching directory (None = don't cache)
-    vlad_cache_dir: Path = None
+    vlad_cache_dir: Path = "./cache/dino_v2_vlad/"
     # VLAD Caching for the database and query
-    vlad_cache_db_qu: bool = False
+    vlad_cache_db_qu: bool = True
     """
         If the `vlad_cache_dir` is not None (then VLAD caching is 
         turned on), this flag controls whether the database and query
@@ -141,20 +143,20 @@ class LocalArgs:
     # Resize the image (doesn't work, always 320, 320)
     resize: Tuple[int, int] = field(default_factory=lambda: (320, 320))
     # Number of clusters for VLAD
-    num_clusters: int = 8
+    num_clusters: int = 32
     # Dataset split for VPR (BaseDataset)
     data_split: Literal["train", "test", "val"] = "test"
     # Dino parameters
     # Model type
     model_type: Literal["dinov2_vits14", "dinov2_vitb14", 
-            "dinov2_vitl14", "dinov2_vitg14"] = "dinov2_vits14"
+            "dinov2_vitl14", "dinov2_vitg14"] = "dinov2_vitg14"
     """
         Model for Dino-v2 to use as the base model.
     """
     # Layer for extracting Dino feature (descriptors)
-    desc_layer: int = 11
+    desc_layer: int = 31
     # Facet for extracting descriptors
-    desc_facet: Literal["query", "key", "value", "token"] = "key"
+    desc_facet: Literal["query", "key", "value", "token"] = "value"
     # Sub-sample query images (RAM or VRAM constraints) (1 = off)
     sub_sample_qu: int = 1
     # Sub-sample database images (RAM or VRAM constraints) (1 = off)
@@ -181,7 +183,7 @@ class LocalArgs:
         "Oxford": 0,
         "gardens": 0,
         "17places": 0,
-        "baidu_datasets": 0,
+        "baidu_datasets": 30,
         "st_lucia": 0,
         "pitts30k": 0,
         "Tartan_GNSS_test_rotated": 0,
@@ -238,6 +240,7 @@ class GlobalVLADVocabularyDataset:
             self.ss_list = [ss_list] * len(ds_names)
         else:
             self.ss_list = ss_list
+        # TODO(yc): always resize to 320x320?
         self.base_transform = tvf.Compose([
             tvf.ToTensor(),
             tvf.Normalize(mean=[0.485, 0.456, 0.406],
@@ -255,7 +258,7 @@ class GlobalVLADVocabularyDataset:
             if ds_name=="baidu_datasets":
                 vpr_ds = Baidu_Dataset(bd_args, ds_dir, ds_name, 
                         data_split)
-            elif ds_name=="Oxford":
+            """ elif ds_name=="Oxford":
                 vpr_ds = Oxford(ds_dir)
             elif ds_name=="Oxford_25m": # This is actually useless!
                 vpr_ds = Oxford(ds_dir, override_dist=25)
@@ -276,7 +279,7 @@ class GlobalVLADVocabularyDataset:
                 vpr_ds = Eiffel(bd_args, ds_dir, ds_name, data_split)
             else:
                 vpr_ds = BaseDataset(bd_args, ds_dir, ds_name, 
-                        data_split)
+                        data_split) """
             imgs_path = vpr_ds.get_image_paths()
             num_db = vpr_ds.database_num
             num_ss = self.ss_list[i]
@@ -343,6 +346,7 @@ def build_vlads_fm_global(largs: LocalArgs, vpr_ds: BaseDataset,
     def extract_patch_descriptors(indices, 
             use_set: Literal["vpr", "distractor", "global"]="vpr"):
         patch_descs = []
+        # TODO(yc): run inference for single image, instead of a batch of images?
         for i in tqdm(indices, disable=not verbose):
             if use_set == "vpr":
                 img = vpr_ds[i][0]
@@ -353,6 +357,7 @@ def build_vlads_fm_global(largs: LocalArgs, vpr_ds: BaseDataset,
             else:
                 raise ValueError(f"Invalid use set: {use_set}")
             c, h, w = img.shape
+             #TODO(yc): center-crop?
             h_new, w_new = (h // 14) * 14, (w // 14) * 14
             img_in = tvf.CenterCrop((h_new, w_new))(img)[None, ...]
             ret = dino(img_in.to(device))
@@ -372,13 +377,17 @@ def build_vlads_fm_global(largs: LocalArgs, vpr_ds: BaseDataset,
         num_db = len(glob_ds)
         db_indices = np.arange(0, num_db, largs.sub_sample_db_vlad)
         # Database descriptors (for VLAD clusters): [n_db, n_d, d_dim]
+        start_time = time.time()
         full_db_vlad = extract_patch_descriptors(db_indices, "global")
+        print('extract_patch_descriptor: run DINO on %d db images for building clusters: %.2f seconds' % (len(db_indices), time.time() - start_time))
         if verbose:
             print(f"Database descriptors shape: {full_db_vlad.shape}")
         d_dim = full_db_vlad.shape[2]
         if verbose:
             print(f"Descriptor dimensionality: {d_dim}")
+        start_time = time.time()
         vlad.fit(ein.rearrange(full_db_vlad, "n k d -> (n k) d"))
+        print('vlad.fit: build clusters %.2f seconds' % (time.time() - start_time))
         del full_db_vlad
     if verbose:
         print(f"VLAD cluster centers shape: "\
@@ -394,16 +403,22 @@ def build_vlads_fm_global(largs: LocalArgs, vpr_ds: BaseDataset,
     if c_dbq and vlad.can_use_cache_ids(db_img_names):
         if verbose:
             print("Using cached VLADs for database images")
+        start_time = time.time()
         db_vlads = vlad.generate_multi([None] * len(db_img_names), 
                 db_img_names)
+        print('generate_multi: generate vlad descriptor on %d db images: %.2f seconds' % (len(db_indices), time.time() - start_time))
     else:
         if verbose:
             print("Valid cache not found, doing forward pass")
+        start_time = time.time()
         full_db = extract_patch_descriptors(db_indices, "vpr")
+        print('extract_patch_descriptor: run DINO on %d db images: %.2f seconds' % (len(db_indices), time.time() - start_time))
         if not c_dbq:
             db_img_names = [None] * len(db_img_names)
+        start_time = time.time()
         db_vlads: torch.Tensor = vlad.generate_multi(full_db, 
                 db_img_names)
+        print('vlad.generate_multi: genreate vlad descriptor for %d db images: %.2f seconds' % (len(db_indices), time.time() - start_time))
         del full_db
     if verbose:
         print(f"Database VLADs shape: {db_vlads.shape}")
@@ -417,16 +432,22 @@ def build_vlads_fm_global(largs: LocalArgs, vpr_ds: BaseDataset,
     if c_dbq and vlad.can_use_cache_ids(qu_img_names):
         if verbose:
             print("Using cached VLADs for query images")
+        start_time = time.time()
         qu_vlads = vlad.generate_multi([None] * len(qu_img_names), 
                 qu_img_names)
+        print('generate_multi: generate vlad descriptor for %d query images: %.2f seconds' % (len(qu_img_names), time.time() - start_time))
     else:
         if verbose:
             print("Valid cache not found, doing forward pass")
+        start_time = time.time()
         full_qu = extract_patch_descriptors(q_indices, "vpr")
+        print('extract_patch_descriptor: run DINO on %d query images: %.2f seconds' % (len(q_indices), time.time() - start_time))
         if not c_dbq:
             qu_img_names = [None] * len(qu_img_names)
+        start_time = time.time()
         qu_vlads = vlad.generate_multi(full_qu,
                 qu_img_names)
+        print('generate_multi: generate vlad descriptor for %d query images: %.2f seconds' % (len(qu_img_names), time.time() - start_time))
         del full_qu
     if verbose:
         print(f"Query VLADs shape: {qu_vlads.shape}")
@@ -501,7 +522,7 @@ def main(largs: LocalArgs):
     if ds_name=="baidu_datasets":
         vpr_ds = Baidu_Dataset(largs.bd_args, ds_dir, ds_name, 
                             largs.data_split)
-    elif ds_name=="Oxford":
+    """elif ds_name=="Oxford":
         vpr_ds = Oxford(ds_dir)
     elif ds_name=="Oxford_25m":
         vpr_ds = Oxford(ds_dir, override_dist=25)
@@ -520,11 +541,11 @@ def main(largs: LocalArgs):
         vpr_ds = Eiffel(largs.bd_args,ds_dir,ds_name,largs.data_split)
     else:
         vpr_ds = BaseDataset(largs.bd_args, ds_dir, ds_name, 
-                        largs.data_split)
+                        largs.data_split) """
     
     if ds_name=="VPAir":
         db_vlads, qu_vlads = build_vlads_fm_global(largs, vpr_ds,
-                glob_ds, vpr_distractor_ds=vpr_distractor_ds)
+                glob_ds, vpr_distractor_ds=vpr_distractor_ds) 
     else:
         db_vlads, qu_vlads = build_vlads_fm_global(largs, vpr_ds, 
                 glob_ds)

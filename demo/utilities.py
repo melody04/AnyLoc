@@ -48,7 +48,8 @@ class DinoV2ExtractFeatures:
             - norm_descs:   If True, the descriptors are normalized
             - device:   PyTorch device to use
         """
-        self.vit_type: str = dino_model
+        self.vit_type: str = dino_modeltorch.hub._validate_not_a_forked_repo=lambda a,b,c: True
+
         self.dino_model: nn.Module = torch.hub.load(
                 'facebookresearch/dinov2', dino_model)
         self.device = torch.device(device)

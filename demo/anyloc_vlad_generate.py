@@ -40,26 +40,26 @@ from utilities import VLAD
 @dataclass
 class LocalArgs:
     # If True, the example dataset will be downloaded
-    use_example: bool = True
+    use_example: bool = False
     """
         If True, the example dataset will be downloaded. If False,
         then the input directory should contain the images (user is
         expected to arrange it).
     """
     # Input directory containing images
-    in_dir: str = "./data/CityCenter/Images"
+    in_dir: str = "./data/baidu_mall/training_images_undistort"
     # Image file extension
     imgs_ext: str = "jpg"
     # Output directory where global descriptors will be stored
-    out_dir: str = "./data/CityCenter/GD_Images"
+    out_dir: str = "./output/baidu_mall/training_images_undistort"
     # Maximum edge length (expected) across all images (GPU OOM)
     max_img_size: int = 1024
     # Use the OneDrive mirror for example
-    use_od_example: bool = True
+    use_od_example: bool = False
     # Use only the first-N images (for testing). Use all if 'None'.
     first_n: Union[int, None] = None
     # Domain to use for loading VLAD cluster centers
-    domain: Literal["aerial", "indoor", "urban"] = "urban"
+    domain: Literal["aerial", "indoor", "urban"] = "indoor"
     # Number of clusters (cluster centers for VLAD) - read from cache
     num_c: int = 32
 
@@ -136,12 +136,13 @@ def main(largs: LocalArgs):
                         std=[0.229, 0.224, 0.225])
     ])
     
+    #domain = "indoor"
     # VLAD object (load cache)
     cache_dir = _ex("./cache")
     ext_specifier = f"dinov2_vitg14/"\
             f"l{desc_layer}_{desc_facet}_c{num_c}"
     c_centers_file = os.path.join(cache_dir, "vocabulary", 
-            ext_specifier, domain, "c_centers.pt")
+            ext_specifier, "indoor", "c_centers.pt")
     assert os.path.isfile(c_centers_file), "Vocabulary not cached!"
     c_centers = torch.load(c_centers_file)
     assert c_centers.shape[0] == num_c, "Wrong number of clusters!"
