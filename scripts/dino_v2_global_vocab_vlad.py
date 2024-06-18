@@ -638,6 +638,51 @@ def main(largs: LocalArgs):
             print(f"Created qualitative directory: {qimgs_dir}")
         else:
             print(f"Saving qualitative results in: {qimgs_dir}")
+
+    pos_per_qu: np.ndarray
+    distances, indices = index.search(nqu_descs, max_k)
+    for i_qu, qu_retr_maxk in enumerate(indices):
+        for i_rec in largs.top_k_vals:
+            correct_retr_qu = pos_per_qu[i_qu]  # Ground truth
+            if np.any(np.isin(qu_retr_maxk[:i_rec], correct_retr_qu)):
+                recalls[i_rec] += 1 # Query retrieved correctly
+        if i_qu in qimgs_inds and qimgs_result:
+            # Save qualitative results
+            qual_top_k = qu_retr_maxk[:largs.qual_num_rets]
+            correct_retr_qu = pos_per_qu[i_qu]
+            color_mask = np.isin(qual_top_k, correct_retr_qu)
+            colors_all = [true_color if x else false_color \
+                        for x in color_mask]
+            retr_dists = distances[i_qu, :largs.qual_num_rets]
+            img_q = to_pil_list(    # Dataset is [database] + [query]
+                vpr_dl.dataset[ndb_descs.shape[0]+i_qu][0])[0]
+            img_q = to_np(img_q, np.uint8)
+            # Main figure
+            fig = plt.figure(figsize=(5*(1+largs.qual_num_rets), 5),
+                            dpi=300)
+            gs = fig.add_gridspec(1, 1+largs.qual_num_rets)
+            ax = fig.add_subplot(gs[0, 0])
+            ax.set_title(f"{i_qu} + {ndb_descs.shape[0]}")  # DS index
+            ax.imshow(pad_img(img_q, padding, query_color))
+            ax.axis('off')
+            for i, db_retr in enumerate(qual_top_k):
+                ax = fig.add_subplot(gs[0, i+1])
+                img_r = to_pil_list(vpr_dl.dataset[db_retr][0])[0]
+                img_r = to_np(img_r, np.uint8)
+                ax.set_title(f"{db_retr} ({retr_dists[i]:.4f})")
+                ax.imshow(pad_img(img_r, padding, colors_all[i]))
+                ax.axis('off')
+            fig.set_tight_layout(True)
+            save_path = f"{qimgs_dir}/Q_{i_qu}_Top_"\
+                        f"{largs.qual_num_rets}.png"
+            fig.savefig(save_path)
+            plt.close(fig)
+            if largs.prog.use_wandb and largs.prog.wandb_save_qual:
+                wandb.log({"Qual_Results": wandb.Image(save_path)})
+    if use_percentage:
+        for k in recalls:
+            recalls[k] /= len(indices)  # As a percentage of queries
+    return recalls
     
     # Add retrievals
     results["Qual-Dists"] = dists
