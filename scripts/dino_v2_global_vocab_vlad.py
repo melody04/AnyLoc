@@ -64,6 +64,7 @@
 """
 
 # %%
+from operator import __getitem__
 import os
 import sys
 from pathlib import Path
@@ -127,7 +128,7 @@ class LocalArgs:
     # Experiment identifier (None = don't use) [won't be used for caching]
     exp_id: Union[str, None] = None
     # VLAD Caching directory (None = don't cache)
-    vlad_cache_dir: Path = None
+    vlad_cache_dir: Path = "./cache/new"
     # VLAD Caching for the database and query
     vlad_cache_db_qu: bool = False
     """
@@ -156,11 +157,11 @@ class LocalArgs:
     # Facet for extracting descriptors
     desc_facet: Literal["query", "key", "value", "token"] = "value"
     # Sub-sample query images (RAM or VRAM constraints) (1 = off)
-    sub_sample_qu: int = 1
+    sub_sample_qu: int = 30
     # Sub-sample database images (RAM or VRAM constraints) (1 = off)
-    sub_sample_db: int = 1
+    sub_sample_db: int = 30
     # Sub-sample database images for VLAD clustering only
-    sub_sample_db_vlad: int = 1
+    sub_sample_db_vlad: int = 30
     """
         Use sub-sampling for creating the VLAD cluster centers. Use
         this to reduce the RAM usage during the clustering process.
@@ -171,17 +172,17 @@ class LocalArgs:
     top_k_vals: List[int] = field(default_factory=lambda:\
                                 list(range(1, 21, 1)))
     # Show a matplotlib plot for recalls
-    show_plot: bool = False
+    show_plot: bool = True
     # Use hard or soft descriptor assignment for VLAD
     vlad_assignment: Literal["hard", "soft"] = "hard"
     # Softmax temperature for VLAD (soft assignment only)
-    vlad_soft_temp: float = 1.0
+    vlad_soft_temp: float = 32.0
     # Databases to sample
     db_samples: dict = field(default_factory=lambda: {  # Database name: sub-sampling frequency
         "Oxford": 0,
         "gardens": 0,
         "17places": 0,
-        "baidu_datasets": 30,
+        "baidu_datasets": 1,
         "st_lucia": 0,
         "pitts30k": 0,
         "Tartan_GNSS_test_rotated": 0,
@@ -200,7 +201,7 @@ class LocalArgs:
         dropped when loading VLAD).
     """
     # Save Database and Query VLAD descriptors (final)
-    save_vlad_descs: Optional[Path] = None
+    save_vlad_descs: Optional[Path] = "ok"
     """
         Internal use only (don't set normally). Save the database and
         query VLAD descriptors to this folder. The file name is
@@ -299,6 +300,7 @@ class GlobalVLADVocabularyDataset:
         img = Image.open(self.images_paths[idx])
         img = self.base_transform(img)
         return img, idx
+    
 
 
 # %%
@@ -578,6 +580,7 @@ def main(largs: LocalArgs):
     for k in recalls:
         results[f"R@{k}"] = recalls[k]
         print(f"  - R@{k}: {recalls[k]:.5f}")
+    
     if largs.show_plot:
         plt.plot(recalls.keys(), recalls.values())
         plt.ylim(0, 1)
@@ -597,11 +600,49 @@ def main(largs: LocalArgs):
         wandb.log(results)
         for tk in recalls:
             wandb.log({"Recall-All": recalls[tk]}, step=int(tk))
+
+    #image retrieval visual
+    save_figs:bool= True
+    nqu_descs: np.ndarray
+    qual_result_percent: float = 0.0
+    query_color = (125,   0, 125)   # RGB for query image (1st)
+    false_color = (255,   0,   0)   # False retrievals
+    true_color =  (  0, 255,   0)   # True retrievals
+    padding = 20
+    qimgs_result, qimgs_dir = True, \
+        f"{largs.prog.cache_dir}/qualitative_retr" # Directory
+    if largs.exp_id == False or largs.exp_id is None:   # Don't store
+        qimgs_result, qimgs_dir = False, None
+    elif type(largs.exp_id) == str:
+        if not largs.use_residual:
+            qimgs_dir = f"{largs.prog.cache_dir}/experiments/"\
+                        f"{largs.exp_id}/qualitative_retr"
+        else:
+            qimgs_dir = f"{largs.prog.cache_dir}/experiments/"\
+                        f"{largs.exp_id}/qualitative_retr_residual_nc"\
+                        f"{largs.num_clusters}"
+    qimgs_inds = []
+    if (not save_figs) or largs.qual_result_percent <= 0:
+        qimgs_result = False
+    if not qimgs_result:    # Saving query images
+        print("Not saving qualitative results")
+    else:
+        _n_qu = nqu_descs.shape[0]
+        qimgs_inds = np.random.default_rng().choice(
+                range(_n_qu), int(_n_qu * largs.qual_result_percent),
+                replace=False)  # Qualitative images to save
+        print(f"There are {_n_qu} query images")
+        print(f"Will save {len(qimgs_inds)} qualitative images")
+        if not os.path.isdir(qimgs_dir):
+            os.makedirs(qimgs_dir)  # Ensure folder exists
+            print(f"Created qualitative directory: {qimgs_dir}")
+        else:
+            print(f"Saving qualitative results in: {qimgs_dir}")
     
     # Add retrievals
     results["Qual-Dists"] = dists
     results["Qual-Indices"] = indices
-    save_res_file = None
+    save_res_file = "./home/melodyh/AnyLoc/results"
     if largs.exp_id == True:
         save_res_file = caching_directory
     elif type(largs.exp_id) == str:
@@ -615,6 +656,8 @@ def main(largs: LocalArgs):
         joblib.dump(results, save_res_file)
     else:
         print("Not saving results")
+
+        
     
     if largs.prog.use_wandb:
         wandb.finish()
