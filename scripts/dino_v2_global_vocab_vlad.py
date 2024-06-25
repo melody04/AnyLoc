@@ -95,6 +95,8 @@ from typing import Tuple, List, Optional, Union, Literal
 from tqdm.auto import tqdm
 import traceback
 import wandb
+from torch.utils.data import DataLoader
+import faiss
 import time
 import joblib
 import tyro
@@ -107,6 +109,8 @@ from custom_datasets.global_dataloader import Global_Dataloader \
         as GlobalDataloader
 from dvgl_benchmark.datasets_ws import BaseDataset
 from custom_datasets.baidu_dataloader import Baidu_Dataset
+from utilities import to_np, to_pil_list, pad_img, reduce_pca, \
+    concat_desc_dists_clusters, seed_everything, get_top_k_recall
 """from custom_datasets.oxford_dataloader import Oxford
 from custom_datasets.gardens import Gardens
 from custom_datasets.aerial_dataloader import Aerial
@@ -116,6 +120,8 @@ from custom_datasets.laurel_dataloader import Laurel
 from custom_datasets.eiffel_dataloader import Eiffel
 from custom_datasets.vpair_distractor_dataloader import VPAir_Distractor 
 """
+
+import time
 
 # %%
 @dataclass
@@ -128,9 +134,13 @@ class LocalArgs:
     # Experiment identifier (None = don't use) [won't be used for caching]
     exp_id: Union[str, None] = None
     # VLAD Caching directory (None = don't cache)
+#<<<<<<< HEAD
     vlad_cache_dir: Path = "./cache/new"
+#=======
+    vlad_cache_dir: Path = "./cache/dino_v2_vlad/"
+#>>>>>>> d7ab5715ec0c84966eedfd44f7c09b4d5764da0c
     # VLAD Caching for the database and query
-    vlad_cache_db_qu: bool = False
+    vlad_cache_db_qu: bool = True
     """
         If the `vlad_cache_dir` is not None (then VLAD caching is 
         turned on), this flag controls whether the database and query
@@ -157,11 +167,11 @@ class LocalArgs:
     # Facet for extracting descriptors
     desc_facet: Literal["query", "key", "value", "token"] = "value"
     # Sub-sample query images (RAM or VRAM constraints) (1 = off)
-    sub_sample_qu: int = 30
+    sub_sample_qu: int = 100
     # Sub-sample database images (RAM or VRAM constraints) (1 = off)
-    sub_sample_db: int = 30
+    sub_sample_db: int = 100
     # Sub-sample database images for VLAD clustering only
-    sub_sample_db_vlad: int = 30
+    sub_sample_db_vlad: int = 100
     """
         Use sub-sampling for creating the VLAD cluster centers. Use
         this to reduce the RAM usage during the clustering process.
@@ -239,6 +249,7 @@ class GlobalVLADVocabularyDataset:
             self.ss_list = [ss_list] * len(ds_names)
         else:
             self.ss_list = ss_list
+        # TODO(yc): always resize to 320x320?
         self.base_transform = tvf.Compose([
             tvf.ToTensor(),
             tvf.Normalize(mean=[0.485, 0.456, 0.406],
@@ -345,6 +356,7 @@ def build_vlads_fm_global(largs: LocalArgs, vpr_ds: BaseDataset,
     def extract_patch_descriptors(indices, 
             use_set: Literal["vpr", "distractor", "global"]="vpr"):
         patch_descs = []
+        # TODO(yc): run inference for single image, instead of a batch of images?
         for i in tqdm(indices, disable=not verbose):
             if use_set == "vpr":
                 img = vpr_ds[i][0]
@@ -355,6 +367,7 @@ def build_vlads_fm_global(largs: LocalArgs, vpr_ds: BaseDataset,
             else:
                 raise ValueError(f"Invalid use set: {use_set}")
             c, h, w = img.shape
+             #TODO(yc): center-crop?
             h_new, w_new = (h // 14) * 14, (w // 14) * 14
             img_in = tvf.CenterCrop((h_new, w_new))(img)[None, ...]
             ret = dino(img_in.to(device))
@@ -374,13 +387,17 @@ def build_vlads_fm_global(largs: LocalArgs, vpr_ds: BaseDataset,
         num_db = len(glob_ds)
         db_indices = np.arange(0, num_db, largs.sub_sample_db_vlad)
         # Database descriptors (for VLAD clusters): [n_db, n_d, d_dim]
+        start_time = time.time()
         full_db_vlad = extract_patch_descriptors(db_indices, "global")
+        print('extract_patch_descriptor: run DINO on %d db images for building clusters: %.2f seconds' % (len(db_indices), time.time() - start_time))
         if verbose:
             print(f"Database descriptors shape: {full_db_vlad.shape}")
         d_dim = full_db_vlad.shape[2]
         if verbose:
             print(f"Descriptor dimensionality: {d_dim}")
+        start_time = time.time()
         vlad.fit(ein.rearrange(full_db_vlad, "n k d -> (n k) d"))
+        print('vlad.fit: build clusters %.2f seconds' % (time.time() - start_time))
         del full_db_vlad
     if verbose:
         print(f"VLAD cluster centers shape: "\
@@ -396,16 +413,22 @@ def build_vlads_fm_global(largs: LocalArgs, vpr_ds: BaseDataset,
     if c_dbq and vlad.can_use_cache_ids(db_img_names):
         if verbose:
             print("Using cached VLADs for database images")
+        start_time = time.time()
         db_vlads = vlad.generate_multi([None] * len(db_img_names), 
                 db_img_names)
+        print('generate_multi: generate vlad descriptor on %d db images: %.2f seconds' % (len(db_indices), time.time() - start_time))
     else:
         if verbose:
             print("Valid cache not found, doing forward pass")
+        start_time = time.time()
         full_db = extract_patch_descriptors(db_indices, "vpr")
+        print('extract_patch_descriptor: run DINO on %d db images: %.2f seconds' % (len(db_indices), time.time() - start_time))
         if not c_dbq:
             db_img_names = [None] * len(db_img_names)
+        start_time = time.time()
         db_vlads: torch.Tensor = vlad.generate_multi(full_db, 
                 db_img_names)
+        print('vlad.generate_multi: genreate vlad descriptor for %d db images: %.2f seconds' % (len(db_indices), time.time() - start_time))
         del full_db
     if verbose:
         print(f"Database VLADs shape: {db_vlads.shape}")
@@ -419,16 +442,22 @@ def build_vlads_fm_global(largs: LocalArgs, vpr_ds: BaseDataset,
     if c_dbq and vlad.can_use_cache_ids(qu_img_names):
         if verbose:
             print("Using cached VLADs for query images")
+        start_time = time.time()
         qu_vlads = vlad.generate_multi([None] * len(qu_img_names), 
                 qu_img_names)
+        print('generate_multi: generate vlad descriptor for %d query images: %.2f seconds' % (len(qu_img_names), time.time() - start_time))
     else:
         if verbose:
             print("Valid cache not found, doing forward pass")
+        start_time = time.time()
         full_qu = extract_patch_descriptors(q_indices, "vpr")
+        print('extract_patch_descriptor: run DINO on %d query images: %.2f seconds' % (len(q_indices), time.time() - start_time))
         if not c_dbq:
             qu_img_names = [None] * len(qu_img_names)
+        start_time = time.time()
         qu_vlads = vlad.generate_multi(full_qu,
                 qu_img_names)
+        print('generate_multi: generate vlad descriptor for %d query images: %.2f seconds' % (len(qu_img_names), time.time() - start_time))
         del full_qu
     if verbose:
         print(f"Query VLADs shape: {qu_vlads.shape}")
@@ -603,8 +632,18 @@ def main(largs: LocalArgs):
 
     #image retrieval visual
     save_figs:bool= True
+    print("entering image retrieval visual")
     nqu_descs: np.ndarray
-    qual_result_percent: float = 0.0
+    ndb_descs: np.ndarray 
+    D = ndb_descs.shape[1]
+    D = 512
+    vpr_dl: DataLoader
+    
+    nqu_descs: np.ndarray
+    print("numpy array set")
+    index = faiss.IndexFlatIP(D)
+    qual_result_percent: float = 1
+    print("set float")
     query_color = (125,   0, 125)   # RGB for query image (1st)
     false_color = (255,   0,   0)   # False retrievals
     true_color =  (  0, 255,   0)   # True retrievals
@@ -621,9 +660,11 @@ def main(largs: LocalArgs):
             qimgs_dir = f"{largs.prog.cache_dir}/experiments/"\
                         f"{largs.exp_id}/qualitative_retr_residual_nc"\
                         f"{largs.num_clusters}"
+    print("all clusters set")
     qimgs_inds = []
     if (not save_figs) or largs.qual_result_percent <= 0:
         qimgs_result = False
+        print("false")
     if not qimgs_result:    # Saving query images
         print("Not saving qualitative results")
     else:
@@ -639,6 +680,7 @@ def main(largs: LocalArgs):
         else:
             print(f"Saving qualitative results in: {qimgs_dir}")
 
+    max_k = max(largs.top_k_vals)
     pos_per_qu: np.ndarray
     distances, indices = index.search(nqu_descs, max_k)
     for i_qu, qu_retr_maxk in enumerate(indices):
@@ -683,6 +725,8 @@ def main(largs: LocalArgs):
         for k in recalls:
             recalls[k] /= len(indices)  # As a percentage of queries
     return recalls
+
+
     
     # Add retrievals
     results["Qual-Dists"] = dists
